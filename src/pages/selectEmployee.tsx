@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from "react";
-import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
 type Item = {
@@ -7,7 +6,19 @@ type Item = {
   name: string;
   quantity: string;
   unit: string;
+  category: string;
 };
+
+const categories = [
+  "Sushi",
+  "Bebidas",
+  "Vinhos",
+  "Frutas",
+  "Sobremesas",
+  "Limpeza",
+  "Outros",
+  "Mercado chinês",
+];
 
 function SelectEmployee() {
   const [showModal, setShowModal] = useState(false);
@@ -15,13 +26,14 @@ function SelectEmployee() {
   const [name, setName] = useState("");
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("");
+  const [category, setCategory] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [selectedItems, setSelectedItems] = useState<number[]>([]);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [error, setError] = useState("");
 
-  const pdfRef = useRef<HTMLDivElement | null>(null);
+  const previewRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const savedItems = localStorage.getItem("items");
@@ -42,31 +54,8 @@ function SelectEmployee() {
   function handleAddOrEditItem() {
     setError("");
 
-    if (!name.trim()) {
-      setError("Digite o nome do item");
-      return;
-    }
-
-    if (!quantity.trim()) {
-      setError("Digite a quantidade");
-      return;
-    }
-
-    if (!unit) {
-      setError("Selecione a unidade");
-      return;
-    }
-
-    const normalizedName = name.trim().toLowerCase();
-
-    const alreadyExists = items.some(
-      (item) =>
-        item.name.trim().toLowerCase() === normalizedName &&
-        item.id !== editingItem?.id,
-    );
-
-    if (alreadyExists) {
-      setError("Este item já existe");
+    if (!name.trim() || !quantity.trim() || !unit || !category) {
+      setError("Preencha todos os campos");
       return;
     }
 
@@ -75,13 +64,13 @@ function SelectEmployee() {
     if (unit === "kg") {
       const formatted = formatKg(quantity);
       if (!formatted) {
-        setError("Kg inválido (ex: 1,500)");
+        setError("Kg inválido");
         return;
       }
       finalQuantity = formatted;
     } else {
       if (!/^\d+$/.test(quantity)) {
-        setError("Use número inteiro (ex: 1, 2, 3)");
+        setError("Use número inteiro");
         return;
       }
     }
@@ -90,7 +79,13 @@ function SelectEmployee() {
       setItems(
         items.map((item) =>
           item.id === editingItem.id
-            ? { ...item, name: name.trim(), quantity: finalQuantity, unit }
+            ? {
+                ...item,
+                name: name.trim(),
+                quantity: finalQuantity,
+                unit,
+                category,
+              }
             : item,
         ),
       );
@@ -103,6 +98,7 @@ function SelectEmployee() {
           name: name.trim(),
           quantity: finalQuantity,
           unit,
+          category,
         },
       ]);
     }
@@ -110,15 +106,26 @@ function SelectEmployee() {
     setName("");
     setQuantity("");
     setUnit("");
+    setCategory("");
     setShowModal(false);
   }
 
   function handleDelete(id: number) {
-    const confirmDelete = window.confirm("Tem certeza que deseja apagar?");
-    if (!confirmDelete) return;
-
+    if (!window.confirm("Tem certeza que deseja apagar?")) return;
     setItems(items.filter((item) => item.id !== id));
     setSelectedItems(selectedItems.filter((i) => i !== id));
+  }
+
+  function handleDeleteSelected() {
+    if (selectedItems.length === 0) {
+      alert("Nenhum item selecionado");
+      return;
+    }
+
+    if (!window.confirm("Apagar itens selecionados?")) return;
+
+    setItems(items.filter((item) => !selectedItems.includes(item.id)));
+    setSelectedItems([]);
   }
 
   function handleEdit(item: Item) {
@@ -126,6 +133,7 @@ function SelectEmployee() {
     setName(item.name);
     setQuantity(item.quantity);
     setUnit(item.unit);
+    setCategory(item.category);
     setShowModal(true);
   }
 
@@ -137,18 +145,22 @@ function SelectEmployee() {
     }
   }
 
-  async function generatePDF() {
-    if (!pdfRef.current) return;
+  function selectAll() {
+    setSelectedItems(items.map((item) => item.id));
+  }
 
-    const canvas = await html2canvas(pdfRef.current);
-    const data = canvas.toDataURL("image/png");
+  function clearSelection() {
+    setSelectedItems([]);
+  }
 
-    const pdf = new jsPDF();
-    const width = pdf.internal.pageSize.getWidth();
-    const height = (canvas.height * width) / canvas.width;
+  async function generateImage() {
+    if (!previewRef.current) return;
 
-    pdf.addImage(data, "PNG", 0, 0, width, height);
-    pdf.save("lista-de-compras.pdf");
+    const canvas = await html2canvas(previewRef.current, { scale: 2 });
+    const link = document.createElement("a");
+    link.download = "lista-de-compras.jpg";
+    link.href = canvas.toDataURL("image/jpeg", 1.0);
+    link.click();
   }
 
   const filteredItems = items.filter((item) =>
@@ -172,7 +184,7 @@ function SelectEmployee() {
               placeholder="Pesquisar item..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="bg-[#efefef] p-3 rounded-xl"
+              className="bg-[#efefef] p-3 rounded-xl outline-none"
             />
 
             <div className="flex gap-2">
@@ -183,6 +195,7 @@ function SelectEmployee() {
                   setName("");
                   setQuantity("");
                   setUnit("");
+                  setCategory("");
                   setError("");
                 }}
                 className="flex-1 bg-blue-600 text-white p-2 rounded-xl"
@@ -194,10 +207,35 @@ function SelectEmployee() {
                 onClick={() => setShowPreview(true)}
                 className="flex-1 bg-red-500 text-white p-2 rounded-xl"
               >
-                PDF
+                Exportar
               </button>
             </div>
 
+            <div className="flex gap-2">
+              <button
+                onClick={selectAll}
+                className="flex-1 bg-green-500 text-white p-2 rounded-xl"
+              >
+                Selecionar tudo
+              </button>
+              <button
+                onClick={clearSelection}
+                className="flex-1 bg-gray-400 text-white p-2 rounded-xl"
+              >
+                Desmarcar
+              </button>
+            </div>
+
+            {/* 🔥 BOTÃO COM CONTADOR */}
+            <button
+              onClick={handleDeleteSelected}
+              className="bg-red-500 text-white text-sm px-3 py-1 rounded-lg self-end"
+            >
+              Apagar selecionados ({selectedItems.length})
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-4 pb-4 flex flex-col gap-3">
             {filteredItems.map((item) => {
               const isSelected = selectedItems.includes(item.id);
 
@@ -205,24 +243,15 @@ function SelectEmployee() {
                 <div
                   key={item.id}
                   onClick={() => toggleSelect(item.id)}
-                  className={`flex justify-between p-3 rounded-xl cursor-pointer ${
+                  className={`flex justify-between items-center p-3 rounded-xl cursor-pointer ${
                     isSelected ? "bg-blue-100" : "bg-[#efefef]"
                   }`}
                 >
-                  <div className="flex gap-2 items-center">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleSelect(item.id)}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-
-                    <div>
-                      <p>{item.name}</p>
-                      <p className="text-sm text-gray-500">
-                        {item.quantity} {item.unit}
-                      </p>
-                    </div>
+                  <div>
+                    <p className="font-medium">{item.name}</p>
+                    <p className="text-sm text-gray-500">
+                      {item.quantity} {item.unit} | {item.category}
+                    </p>
                   </div>
 
                   <div className="flex gap-2">
@@ -231,6 +260,7 @@ function SelectEmployee() {
                         e.stopPropagation();
                         handleEdit(item);
                       }}
+                      className="text-blue-600 text-sm"
                     >
                       Editar
                     </button>
@@ -240,6 +270,7 @@ function SelectEmployee() {
                         e.stopPropagation();
                         handleDelete(item.id);
                       }}
+                      className="text-red-500 text-sm"
                     >
                       Apagar
                     </button>
@@ -251,89 +282,44 @@ function SelectEmployee() {
         </div>
       </div>
 
-      {/* MODAL */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/40 flex justify-center items-center">
-          <div className="bg-white p-5 rounded-2xl flex flex-col gap-4 w-[90%] max-w-sm">
-            <h2 className="text-lg font-semibold">
-              {editingItem ? "Editar Item" : "Novo Item"}
-            </h2>
-
-            <input
-              placeholder="Nome"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="bg-[#efefef] p-2 rounded-xl"
-            />
-
-            <input
-              placeholder={unit === "kg" ? "Ex: 1,500" : "Ex: 1, 2, 3"}
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-              className="bg-[#efefef] p-2 rounded-xl"
-            />
-
-            <select
-              value={unit}
-              onChange={(e) => setUnit(e.target.value)}
-              className="bg-[#efefef] p-2 rounded-xl"
-            >
-              <option value="">Selecione a unidade</option>
-              <option value="kg">Kg</option>
-              <option value="lata">Lata</option>
-              <option value="saco">Saco</option>
-              <option value="cx">Cx</option>
-              <option value="un">Un</option>
-              <option value="pcs">Pcs</option>
-            </select>
-
-            {error && <p className="text-red-500 text-sm">{error}</p>}
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowModal(false)}
-                className="flex-1 bg-gray-300 p-2 rounded-xl"
-              >
-                Cancelar
-              </button>
-
-              <button
-                onClick={handleAddOrEditItem}
-                className="flex-1 bg-blue-600 text-white p-2 rounded-xl"
-              >
-                Salvar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* PREVIEW PDF */}
+      {/* PREVIEW */}
       {showPreview && (
         <div className="fixed inset-0 bg-black/50 flex justify-center items-center">
           <div className="bg-white p-5 rounded-2xl w-[90%] max-w-md flex flex-col gap-4">
-            <div ref={pdfRef} className="p-4 border rounded-xl">
-              <h2 className="text-center font-bold mb-4 border-b pb-2">
-                Lista de Compras
-              </h2>
+            <div ref={previewRef} className="p-4 bg-white rounded-xl">
+              <h2 className="text-center font-bold mb-4">Lista de Compras</h2>
 
-              {selectedList.length === 0 ? (
-                <p className="text-center text-gray-400">
-                  Nenhum item selecionado
-                </p>
-              ) : (
-                selectedList.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex justify-between py-2 border-b"
-                  >
-                    <span>{item.name}</span>
-                    <span>
-                      {item.quantity} {item.unit}
-                    </span>
+              {categories.map((cat) => {
+                const group = selectedList.filter((i) => i.category === cat);
+                if (group.length === 0) return null;
+
+                return (
+                  <div key={cat} className="mb-4">
+                    <h3 className="font-bold border-b flex justify-between">
+                      <span>{cat}</span>
+                      <span>{group.length} itens</span>
+                    </h3>
+
+                    {group.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex justify-between text-sm"
+                      >
+                        <span>{item.name}</span>
+                        <span>
+                          {item.quantity} {item.unit}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                ))
-              )}
+                );
+              })}
+
+              {/* 🔥 TOTAL GERAL */}
+              <div className="mt-4 border-t pt-2 font-bold flex justify-between">
+                <span>Total geral</span>
+                <span>{selectedList.length} itens</span>
+              </div>
             </div>
 
             <div className="flex gap-2">
@@ -345,10 +331,10 @@ function SelectEmployee() {
               </button>
 
               <button
-                onClick={generatePDF}
+                onClick={generateImage}
                 className="flex-1 bg-green-500 text-white p-2 rounded-xl"
               >
-                Baixar PDF
+                Baixar JPG
               </button>
             </div>
           </div>
